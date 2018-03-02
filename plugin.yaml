@@ -1,0 +1,11 @@
+name: "hashtag"
+version: "0.1.0"
+usage: "map of docker registry tags to digest hash"
+description: |-
+  This plugin stores the docker digest hash of tags locally,
+  as to avoid max tags limitations on 3rd party registries.
+command: "$HELM_PLUGIN_DIR/helm-hashtag"
+
+hooks:
+  install: "cd $HELM_PLUGIN_DIR; ./install.sh"
+  update: "cd $HELM_PLUGIN_DIR; ./install.sh"
