@@ -41,7 +41,11 @@ chart-name-here:
 
 # Update tag hash digest values
 $ helm hashtag -f values.yaml --tagfile hashtags.yaml --gcp-repo="eu.gcr.io/foobar"
-
+ 
 # Use the override values
 $ helm install -f values.yaml -f hashtags.yaml ...
 ```
+
+## Dependencies
+
+This plugin uses gcloud for looking up tags and thus requires the source of truth to be a Google Container Registry.
