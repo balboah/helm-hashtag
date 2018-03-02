@@ -31,7 +31,7 @@ Which can then be used as helm values,
 
 ```shell
 # Install the plugin
-$ helm plugin install https://github.com/balboah/helm-hashtag
+$ helm plugin install https://github.com/balboah/helm-hashtag --version master
 
 # Add the repository to the hashtag.yaml
 ```
