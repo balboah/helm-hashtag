@@ -29,15 +29,15 @@ And stored into a the "hashtag" value file.
 Which can then be used as helm values,
 `helm install -f <original-values.yaml> -f <hashtag-values.yaml> ...`
 
-```shell
-# Install the plugin
-$ helm plugin install https://github.com/balboah/helm-hashtag --version master
-
-# Add the repository to the hashtag.yaml
+Add the repository to the hashtag.yaml
 ```
 chart-name-here:
   image: null
 ```
+
+```shell
+# Install the plugin
+$ helm plugin install https://github.com/balboah/helm-hashtag --version master
 
 # Update tag hash digest values
 $ helm hashtag -f values.yaml --tagfile hashtags.yaml --gcp-repo="eu.gcr.io/foobar"
