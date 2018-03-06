@@ -1,5 +1,5 @@
 name: "hashtag"
-version: "0.1.0"
+version: "0.2.0"
 usage: "map of docker registry tags to digest hash"
 description: |-
   This plugin stores the docker digest hash of tags locally,

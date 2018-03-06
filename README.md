@@ -40,12 +40,32 @@ chart-name-here:
 $ helm plugin install https://github.com/balboah/helm-hashtag --version master
 
 # Update tag hash digest values
-$ helm hashtag -f values.yaml --tagfile hashtags.yaml --gcp-repo="eu.gcr.io/foobar"
- 
+$ helm hashtag -f values.yaml --tagfile hashtags.yaml --resolver="https://foobar/path"
+
 # Use the override values
 $ helm install -f values.yaml -f hashtags.yaml ...
 ```
 
-## Dependencies
+## Resolver format:
 
-This plugin uses gcloud for looking up tags and thus requires the source of truth to be a Google Container Registry.
+The resolver is any http server which serves the correct format.
+
+#### http GET `<resolver-url>/<image>/<tag>`
+
+```
+some-other-registry.com/foobar/my-image@sha256:7639a940c07f15c0f842faccd2f0973da9875f02ac1139b72a704e206bdc4e8c
+eu.gcr.io/foobar/my-image@sha256:3867e93f2ad17b12cda5e4dede5c21311826de2b022ab65804e53de3c401b7a1
+```
+
+This file content can be generated with:
+
+`docker inspect eu.gcr.io/foobar/my-image:tagname -f '{{range .RepoDigests}}{{. | printf "%s\n"}}{{end}}'`
+
+Which could be saved in Google Cloud Storage to be used as the resolver:
+
+```
+docker inspect eu.gcr.io/foobar/my-image:tagname -f '{{range .RepoDigests}}{{. | printf "%s\n"}}{{end}}' \
+  | gsutil cp - gs://your-bucket-of-tags/my-image/tagname
+```
+
+This will typically be ran in the CI platform that creates the original image.
