@@ -1,10 +1,11 @@
 package main
 
 import (
+	"bufio"
 	"fmt"
 	"io/ioutil"
+	"net/http"
 	"os"
-	"os/exec"
 	"strings"
 
 	flag "github.com/spf13/pflag"
@@ -24,10 +25,10 @@ const header = `# Values will be overwritten by helm hashtag.
 
 func main() {
 	var (
-		gcpRepo string
-		tf      string
-		vf      valueFiles
-		vs      []string
+		resolver string
+		tf       string
+		vf       valueFiles
+		vs       []string
 	)
 	flag.VarP(&vf, "values", "f", "specify values in a YAML file or a URL(can specify multiple)")
 	flag.StringArrayVar(
@@ -35,13 +36,13 @@ func main() {
 		"set values on the command line (can specify multiple or separate values with commas: key1=val1,key2=val2)",
 	)
 	flag.StringVar(&tf, "tagfile", "hashtags.yaml", "the hash tag value file to use for repository overrides")
-	flag.StringVar(&gcpRepo, "gcp-repo", "", "the source of truth for looking up docker tags, must be configured with gcloud cli")
+	flag.StringVar(&resolver, "resolver", "", "the source of truth for resolving docker tags into digest hashes")
 	flag.Parse()
 
-	if gcpRepo == "" {
+	if resolver == "" {
 		fmt.Println(
-			"A GCP repository must be set. This should be accessible via the gcloud command as it will be used",
-			"for looking up the docker tag digest.")
+			"A resolver URL must be set. This should serve http GET <alias-url>/<tag>",
+			"for resolving the docker tag digest. See the README for further information.")
 		os.Exit(1)
 	}
 
@@ -66,7 +67,7 @@ func main() {
 		fmt.Println(err)
 		os.Exit(1)
 	}
-	if err := tags.updateFrom(gcpRepo, values); err != nil {
+	if err := tags.updateFrom(resolver, values); err != nil {
 		fmt.Println(err)
 		os.Exit(1)
 	}
@@ -85,7 +86,7 @@ func main() {
 
 type hashtags map[string]interface{}
 
-func (t *hashtags) updateFrom(gcpRepo string, values map[string]interface{}) error {
+func (t *hashtags) updateFrom(resolver string, values map[string]interface{}) error {
 	// Find the intersection of which charts we know about and which are available.
 	updates := 0
 	total := 0
@@ -123,7 +124,7 @@ func (t *hashtags) updateFrom(gcpRepo string, values map[string]interface{}) err
 
 			fmt.Printf("updating hash digest for tag %s of %s image %s\n", tag, chart, imageName)
 			updates++
-			if err := t.update(chart, imageRef.(string), repo, gcpRepo, imageName, tag); err != nil {
+			if err := t.update(chart, imageRef.(string), repo, resolver, imageName, tag); err != nil {
 				fmt.Println(err)
 				os.Exit(1)
 			}
@@ -133,31 +134,46 @@ func (t *hashtags) updateFrom(gcpRepo string, values map[string]interface{}) err
 	return nil
 }
 
-func (t *hashtags) update(chart, imageRef, origRepo, gcpRepo, imageName, tag string) error {
-	cmd := exec.Command(
-		"gcloud", "container", "images", "list-tags",
-		fmt.Sprintf("%s/%s", gcpRepo, imageName),
-		"--limit", "1", "--filter", fmt.Sprintf("tags:%s", tag),
-		"--format", "get(digest)",
-	)
-	out, err := cmd.CombinedOutput()
+func (t *hashtags) update(chart, imageRef, origRepo, resolver, imageName, tag string) error {
+	url := fmt.Sprintf("%s/%s/%s", resolver, imageName, tag)
+	resp, err := http.Get(url)
 	if err != nil {
-		fmt.Println(string(out))
 		return err
 	}
-	// On no error, we hopefully got the hash digest in format
-	// <digest type>:<long hash>
-	parts := strings.Split(string(out), ":")
-	if len(parts) != 2 {
-		return fmt.Errorf("unknown digest format: %q", string(out))
-	}
-	digest, hash := parts[0], parts[1]
+	defer resp.Body.Close()
 
-	m := map[string]interface{}(*t)
-	m[chart].(map[interface{}]interface{})[imageRef] = map[string]string{
-		"repository": fmt.Sprintf("%s@%s", origRepo, digest),
-		"tag":        hash,
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("unexpected resolver status code %d for %q", resp.StatusCode, url)
 	}
-	*t = m
-	return nil
+	scanner := bufio.NewScanner(resp.Body)
+	for scanner.Scan() {
+		line := scanner.Text()
+		parts := strings.Split(line, "@")
+		if len(parts) != 2 {
+			return fmt.Errorf("unknown resolver format: %q", line)
+		}
+		// On no error, we hopefully got the hash digest in format
+		// <repo>@<digest type>:<long hash>
+		repo, digest := parts[0], parts[1]
+
+		// Use this digest if this entry is about our original repository.
+		if strings.HasPrefix(repo, origRepo) {
+			if parts = strings.Split(digest, ":"); len(parts) != 2 {
+				return fmt.Errorf("unknown digest format: %q", digest)
+			}
+			hashType, hash := parts[0], parts[1]
+			m := map[string]interface{}(*t)
+			m[chart].(map[interface{}]interface{})[imageRef] = map[string]string{
+				"repository": fmt.Sprintf("%s@%s", origRepo, hashType),
+				"tag":        hash,
+			}
+			*t = m
+			return nil
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return err
+	}
+
+	return fmt.Errorf("could not resolve %s", origRepo)
 }
